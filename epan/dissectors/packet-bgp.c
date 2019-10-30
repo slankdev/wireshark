@@ -43,6 +43,7 @@
  * draft-rabadan-l2vpn-evpn-prefix-advertisement IP Prefix Advertisement
  *     in EVPN
  * draft-ietf-idr-bgp-prefix-sid-05
+ * draft-dawra-idr-srv6-vpn-05
  * http://www.iana.org/assignments/bgp-parameters/ (last updated 2012-04-26)
 
  * TODO:
@@ -522,6 +523,7 @@ static dissector_handle_t bgp_handle;
 #define SAFNUM_EVPN            70  /* EVPN RFC */
 #define SAFNUM_BGP_LS          71  /* RFC7752 */
 #define SAFNUM_BGP_LS_VPN      72  /* RFC7752 */
+#define SAFNUM_LAB_SRV6VPN     99  /* Draft-slankdev */
 #define SAFNUM_LAB_VPNUNICAST 128  /* Draft-rosen-rfc2547bis-03 */
 #define SAFNUM_LAB_VPNMULCAST 129
 #define SAFNUM_LAB_VPNUNIMULC 130
@@ -748,6 +750,8 @@ static dissector_handle_t bgp_handle;
 #define BGP_PREFIX_SID_TLV_LABEL_INDEX     1
 #define BGP_PREFIX_SID_TLV_IPV6_SID        2
 #define BGP_PREFIX_SID_TLV_ORIGINATOR_SRGB 3
+#define BGP_PREFIX_SID_TLV_SRV6_L3_SERVICE 5
+#define BGP_PREFIX_SID_TLV_SRV6_L2_SERVICE 6
 
 /* BGP_PREFIX_SID TLV lengths   */
 #define BGP_PREFIX_SID_TLV_LEN_LABEL_INDEX 7
@@ -1227,6 +1231,7 @@ static const value_string bgpattr_nlri_safi[] = {
     { SAFNUM_VPLS,              "VPLS"},
     { SAFNUM_BGP_LS,            "BGP-LS"},
     { SAFNUM_BGP_LS_VPN,        "BGP-LS-VPN"},
+    { SAFNUM_LAB_SRV6VPN,       "SRv6 VPN Unicast" },        /* draft-slankdev */
     { SAFNUM_LAB_VPNUNICAST,    "Labeled VPN Unicast" },        /* draft-rosen-rfc2547bis-03 */
     { SAFNUM_LAB_VPNMULCAST,    "Labeled VPN Multicast" },
     { SAFNUM_LAB_VPNUNIMULC,    "Labeled VPN Unicast+Multicast" },
@@ -1865,6 +1870,12 @@ static int hf_bgp_prefix_sid_ipv6_value = -1;
 static int hf_bgp_prefix_sid_type = -1;
 static int hf_bgp_prefix_sid_length = -1;
 static int hf_bgp_prefix_sid_reserved = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service_sid = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service_sid_flags = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service_endpoint_behaviour = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service_reserved1 = -1;
+static int hf_bgp_prefix_sid_srv6_l3_service_reserved2 = -1;
 
 /* BGP flow spec nlri header field */
 
@@ -2087,6 +2098,7 @@ static gint ett_bgp_prefix_sid_originator_srgb_block = -1;
 static gint ett_bgp_prefix_sid_originator_srgb_blocks = -1;
 static gint ett_bgp_prefix_sid_label_index = -1;
 static gint ett_bgp_prefix_sid_ipv6 = -1;
+static gint ett_bgp_prefix_sid_srv6_l3_service = -1;
 
 static expert_field ei_bgp_marker_invalid = EI_INIT;
 static expert_field ei_bgp_cap_len_bad = EI_INIT;
@@ -3279,6 +3291,7 @@ mp_addr_to_str (guint16 afi, guint8 safi, tvbuff_t *tvb, gint offset, wmem_strbu
                     length = 4;
                     wmem_strbuf_append(strbuf, tvb_ip_to_str(tvb, offset));
                     break;
+                case SAFNUM_LAB_SRV6VPN:
                 case SAFNUM_LAB_VPNUNICAST:
                 case SAFNUM_LAB_VPNMULCAST:
                 case SAFNUM_LAB_VPNUNIMULC:
@@ -3332,6 +3345,7 @@ mp_addr_to_str (guint16 afi, guint8 safi, tvbuff_t *tvb, gint offset, wmem_strbu
                     length = 16;
                     wmem_strbuf_append_printf(strbuf, "%s", tvb_ip6_to_str(tvb, offset));
                     break;
+                case SAFNUM_LAB_SRV6VPN:
                 case SAFNUM_LAB_VPNUNICAST:
                 case SAFNUM_LAB_VPNMULCAST:
                 case SAFNUM_LAB_VPNUNIMULC:
@@ -3374,6 +3388,7 @@ mp_addr_to_str (guint16 afi, guint8 safi, tvbuff_t *tvb, gint offset, wmem_strbu
         case AFNUM_L2VPN_OLD:
             wmem_strbuf_truncate(strbuf, 0);
             switch (safi) {
+                case SAFNUM_LAB_SRV6VPN:
                 case SAFNUM_LAB_VPNUNICAST: /* only labeles prefixes do make sense */
                 case SAFNUM_LAB_VPNMULCAST:
                 case SAFNUM_LAB_VPNUNIMULC:
@@ -5138,6 +5153,7 @@ decode_prefix_MP(proto_tree *tree, int hf_path_id, int hf_addr4, int hf_addr6,
                 total_length = 1 + 2 + length; /* length field + Tunnel Id + IPv4 len */
                 break;
 
+            case SAFNUM_LAB_SRV6VPN:
             case SAFNUM_LAB_VPNUNICAST:
             case SAFNUM_LAB_VPNMULCAST:
             case SAFNUM_LAB_VPNUNIMULC:
@@ -5325,6 +5341,7 @@ decode_prefix_MP(proto_tree *tree, int hf_path_id, int hf_addr4, int hf_addr6,
                 total_length = (1 + 2) + length; /* length field + Tunnel Id + IPv4 len */
                 break;
 
+            case SAFNUM_LAB_SRV6VPN:
             case SAFNUM_LAB_VPNUNICAST:
             case SAFNUM_LAB_VPNMULCAST:
             case SAFNUM_LAB_VPNUNIMULC:
@@ -5438,6 +5455,7 @@ decode_prefix_MP(proto_tree *tree, int hf_path_id, int hf_addr4, int hf_addr6,
     case AFNUM_L2VPN_OLD:
         switch (safi) {
 
+            case SAFNUM_LAB_SRV6VPN:
             case SAFNUM_LAB_VPNUNICAST:
             case SAFNUM_LAB_VPNMULCAST:
             case SAFNUM_LAB_VPNUNIMULC:
@@ -7691,6 +7709,18 @@ dissect_bgp_path_attr(proto_tree *subtree, tvbuff_t *tvb, guint16 path_attr_len,
                             }
                             q += 3 + prefix_sid_sublen;
                             break;
+                        case BGP_PREFIX_SID_TLV_SRV6_L3_SERVICE:
+                            tlv_item = proto_tree_add_item(subtree2, hf_bgp_prefix_sid_srv6_l3_service, tvb, q , prefix_sid_sublen + 3, ENC_NA);
+                            tlv_tree = proto_item_add_subtree(tlv_item, ett_bgp_prefix_sid_srv6_l3_service);
+                            proto_tree_add_item(tlv_tree, hf_bgp_prefix_sid_srv6_l3_service_reserved1, tvb, q+3, 1, ENC_BIG_ENDIAN); /* reserved */
+                            proto_tree_add_item(tlv_tree, hf_bgp_prefix_sid_srv6_l3_service_sid, tvb, q+3+1, 16, ENC_BIG_ENDIAN); /* sid_value */
+                            proto_tree_add_item(tlv_tree, hf_bgp_prefix_sid_srv6_l3_service_sid_flags, tvb, q+3+17 , 1, ENC_BIG_ENDIAN); /* sid_flags */
+                            proto_tree_add_item(tlv_tree, hf_bgp_prefix_sid_srv6_l3_service_endpoint_behaviour, tvb, q+3+18, 2, ENC_BIG_ENDIAN); /* end_behaviour */
+                            proto_tree_add_item(tlv_tree, hf_bgp_prefix_sid_srv6_l3_service_reserved2, tvb, q+3+20, 1, ENC_BIG_ENDIAN); /* reserved */
+                            q += 3 + prefix_sid_sublen;
+                            break;
+
+                        case BGP_PREFIX_SID_TLV_SRV6_L2_SERVICE:
                     default:
                         proto_tree_add_expert_format(subtree2, pinfo, &ei_bgp_prefix_sid_type_err, tvb, o + i + aoff, alen,
                             "Unknown BGP Prefix-SID TLV type: %u", prefix_sid_subtype);
@@ -8899,6 +8929,24 @@ proto_register_bgp(void)
       { &hf_bgp_prefix_sid_ipv6_value,
         { "IPv6-SID Value", "bgp.prefix_sid.ipv6_value", FT_IPv6,
           BASE_NONE, NULL, 0x0, NULL, HFILL }},
+      { &hf_bgp_prefix_sid_srv6_l3_service,
+        { "SRv6 L3 Servie", "bgp.prefix_sid.srv6_l3_service", FT_NONE,
+          BASE_NONE, NULL, 0x0, NULL, HFILL}},
+      { &hf_bgp_prefix_sid_srv6_l3_service_sid,
+        { "SRv6 SID Value", "bgp.prefix_sid.srv6_l3_service.sid", FT_IPv6,
+          BASE_NONE, NULL, 0x0, NULL, HFILL}},
+      { &hf_bgp_prefix_sid_srv6_l3_service_sid_flags,
+        { "SID Flags", "bgp.prefix_sid.srv6_l3_service.sid_flags", FT_UINT8,
+          BASE_HEX, NULL, 0x0, NULL, HFILL}},
+      { &hf_bgp_prefix_sid_srv6_l3_service_endpoint_behaviour,
+        { "Endpoint Behaviour", "bgp.prefix_sid.srv6_l3_service.endpoint_behaviour", FT_UINT16,
+          BASE_HEX, NULL, 0x0, NULL, HFILL}},
+      { &hf_bgp_prefix_sid_srv6_l3_service_reserved1,
+        { "Reserved1", "bgp.prefix_sid.srv6_l3_service.reserved1", FT_BYTES,
+          BASE_NONE, NULL, 0x0, "Unused (must be clear)", HFILL}},
+      { &hf_bgp_prefix_sid_srv6_l3_service_reserved2,
+        { "Reserved2", "bgp.prefix_sid.srv6_l3_service.reserved2", FT_BYTES,
+          BASE_NONE, NULL, 0x0, "Unused (must be clear)", HFILL}},
       { &hf_bgp_prefix_sid_reserved,
         { "Reserved", "bgp.prefix_sid.reserved", FT_BYTES,
           BASE_NONE, NULL, 0x0, "Unused (must be clear)", HFILL }},
@@ -10056,6 +10104,7 @@ proto_register_bgp(void)
       &ett_bgp_prefix_sid_originator_srgb,
       &ett_bgp_prefix_sid_originator_srgb_block,
       &ett_bgp_prefix_sid_originator_srgb_blocks,
+      &ett_bgp_prefix_sid_srv6_l3_service,
     };
     static ei_register_info ei[] = {
         { &ei_bgp_marker_invalid, { "bgp.marker_invalid", PI_MALFORMED, PI_ERROR, "Marker is not all ones", EXPFILL }},
